@@ -7,6 +7,10 @@
 #define FLASH_D0 22
 #define FLASH_D7 29
 
+#define DEBUG 5
+
+const long FLASH_SIZE = 524288; // 2**19
+
 // Presets for write operations on the SST39SF040 FLASH chip
 const int PGM_CYCLES = 3;
 const int PGM_CYCLE_ADDR[] = {0x5555, 0x2AAA, 0x5555};
@@ -15,13 +19,8 @@ const int ERASE_CYCLES = 6;
 const int ERASE_CYCLE_ADDR[] = {0x5555, 0x2AAA, 0x5555, 0x5555, 0x2AAA, 0x5555};
 const byte ERASE_CYCLE_DATA[] = {0xAA, 0x55, 0x80, 0xAA, 0x55, 0x10};
 
-// Default value for padding
-const byte DEFAULT_PADDING = 0xFF;
-
-const long FLASH_SIZE = 524288; // 2**19
-
 // Presets for serial communication
-const int BAUD = 115200;
+const long BAUD = 115200;
 const int BUFFER_SIZE = 256;
 
 /**
@@ -72,18 +71,18 @@ void read_FLASH(long start = 0, long size = 1024) {
 
   digitalWrite(FLASH_CE, LOW); // Enable chip
   digitalWrite(FLASH_OE, LOW); // Enable output
-
-  Serial.print("Reading FLASH... ");
+  
+  Serial.println("Reading FLASH...");
   
   // Read and print FLASH contents bytewise
   for (long base = start; base < (start + size - 16); base += 16) {
     byte data[16]; // Buffer to hold data
-
+    digitalWrite(DEBUG, HIGH);
     // Read one block of data (16 addresses)
     for (int offset = 0; offset < 16; offset++) {
       data[offset] = read_byte(base + offset);
     }
-
+    
     // Format data into string for output
     char buf[80];
     sprintf(buf, "%05lx: %02x %02x %02x %02x %02x %02x %02x %02x\t%02x %02x %02x %02x %02x %02x %02x %02x",
@@ -92,10 +91,11 @@ void read_FLASH(long start = 0, long size = 1024) {
 
     Serial.println(buf); // Send formatted data to serial monitor
   }
-
+  
   digitalWrite(FLASH_OE, HIGH); // Disable output
   digitalWrite(FLASH_CE, HIGH); // Disable chip
   Serial.println("done.");
+  
 }
 
 /**
@@ -131,7 +131,7 @@ void write_byte(long address, byte data) {
  */
 void write_FLASH(byte data[], size_t size, long address_offset = 0) {
   
-  digitalWrite(FLASH_OE, HIGH); // Unset output_enable
+  digitalWrite(FLASH_OE, HIGH); // Disable output
 
   // Configure FLASH data pins as outputs
   for (int pin = FLASH_D0; pin <= FLASH_D7; pin++) {
@@ -146,7 +146,7 @@ void write_FLASH(byte data[], size_t size, long address_offset = 0) {
 
     // Write data
     write_byte(address, data[address - address_offset]);
-    delayMicroseconds(10); // byte program time
+    delayMicroseconds(20); // byte program time
   }
 }
 
@@ -163,35 +163,48 @@ void erase_FLASH() {
   }
 
   // FLASH chip erase sequence
-  Serial.print("Erasing FLASH...");
+  Serial.print("Erasing FLASH... ");
   for (int cycle = 0; cycle < ERASE_CYCLES; cycle++) {
     write_byte(ERASE_CYCLE_ADDR[cycle], ERASE_CYCLE_DATA[cycle]);
   }
 
   delay(100); // chip erase time
-  Serial.println(" done.");
+  Serial.println("done.");
 }
 
 /**
  * Listens for data stream over USB port and writes to FLASH chip
  */
 void serial_program() {
-  
-  while (Serial.available()) {
-    Serial.read(); // Flush serial buffer
-  }
 
-  for (long address = 0; address < FLASH_SIZE - BUFFER_SIZE; address += BUFFER_SIZE) {
+  long address = 0;
+  bool done = false;
+
+  while (address < FLASH_SIZE - BUFFER_SIZE && !done) {
+    digitalWrite(DEBUG, HIGH);
     Serial.write('K'); // Send acknowledgement to serial bus
 
-    while (!Serial.available()); // Wait for response from Python script
+    // Wait for response from Python script
+    while (!Serial.available());
+    byte cmd = Serial.read();
+    done = (cmd == 'F'); // Break out of loop if receive 'Finished' signal
     
-    if (Serial.read() == 'P') { // 'Program' signal from Python
+    if (cmd == 'P') { // 'Program' signal
       byte page[BUFFER_SIZE]; // Initialize data buffer
     
-      // Wait for page to be written to serial bus and write to FLASH
-      Serial.readBytes(page, BUFFER_SIZE);
+      // Read packet from serial bus
+      size_t received = Serial.readBytes(page, BUFFER_SIZE);
+
+      // If packet was lost, try to receive it again
+      if (received != BUFFER_SIZE) {
+        Serial.write('E');
+        continue;
+      }
+
+      // Write packet to flash and send success acknowledgement to serial bus
       write_FLASH(page, BUFFER_SIZE, address);
+      address += BUFFER_SIZE;
+      Serial.write('D');
     }
   }
 }
@@ -206,6 +219,8 @@ void setup() {
     pinMode(pin, OUTPUT); // Address pins
   }
 
+  pinMode(DEBUG, OUTPUT);
+
   // Disable all chip functions
   digitalWrite(FLASH_CE, HIGH);
   digitalWrite(FLASH_OE, HIGH);
@@ -215,11 +230,12 @@ void setup() {
   Serial.begin(BAUD);
   Serial.setTimeout(1000);
 
+  // Only uncomment ONE (1) of these functions at a time!
   // Erase entire chip
-  erase_FLASH();
+  //erase_FLASH();
 
   // Write data
-  serial_program();
+  //serial_program();
 
   // Read chunk of data
   read_FLASH();
