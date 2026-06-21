@@ -3,7 +3,6 @@ import time
 
 PORT = '/dev/ttyACM0'
 FILE_NAME = 'rom_signed.bin'
-#FILE_NAME = 'rom_unsigned.bin'
 BAUD = 115200
 BUFFER_SIZE = 256
 
@@ -33,7 +32,6 @@ def serial_program():
 
         # Check for response from Arduino
         result = ser.read(1)
-        #print(result)
 
         if result == b'D': # Successful program cycle
             base += BUFFER_SIZE
@@ -42,6 +40,7 @@ def serial_program():
         else: # Other error
             raise RuntimeError("Programming failed")
 
+    ser.write(b'F') # 'Finished' signal to Arduino
     ser.close()
     print("done.")
 

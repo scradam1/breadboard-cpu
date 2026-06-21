@@ -7,8 +7,6 @@
 #define FLASH_D0 22
 #define FLASH_D7 29
 
-#define DEBUG 5
-
 const long FLASH_SIZE = 524288; // 2**19
 
 // Presets for write operations on the SST39SF040 FLASH chip
@@ -181,7 +179,6 @@ void serial_program() {
   bool done = false;
 
   while (address < FLASH_SIZE - BUFFER_SIZE && !done) {
-    digitalWrite(DEBUG, HIGH);
     Serial.write('K'); // Send acknowledgement to serial bus
 
     // Wait for response from Python script
@@ -218,8 +215,6 @@ void setup() {
   for (int pin = FLASH_A0; pin <= FLASH_A18; pin++) {
     pinMode(pin, OUTPUT); // Address pins
   }
-
-  pinMode(DEBUG, OUTPUT);
 
   // Disable all chip functions
   digitalWrite(FLASH_CE, HIGH);
